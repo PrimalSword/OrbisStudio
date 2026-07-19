@@ -49,7 +49,10 @@ def test_import_native_tools_copies_and_locks_files(tmp_path: Path) -> None:
 
     assert (tools / f"lpunpack{suffix}").read_bytes() == b"binary-lpunpack"
     assert (tools / "toolchain.lock.json").is_file()
-    assert any(item.name == "lpunpack" and item.available for item in doctor(tools).items)
+    status = {item.name: item.status for item in doctor(tools).items}
+    assert status["lpunpack"] == "present"
+    assert status["lpmake"] == "present"
+    assert status["dtc"] == "present"
     assert report.tools_directory == str(tools.resolve())
 
 
@@ -60,8 +63,12 @@ def test_verify_lock_detects_tampering(tmp_path: Path) -> None:
     }
     setup_tools(tmp_path, downloader=lambda url: payloads[url])
     clean = verify_lock(tmp_path)
-    assert all(item.status == "present" for item in clean.items if item.name in {tool.name for tool in MANAGED_TOOLS})
+    managed_names = {tool.name for tool in MANAGED_TOOLS}
+    assert all(item.status == "present" for item in clean.items if item.name in managed_names)
 
     (tmp_path / MANAGED_TOOLS[0].filename).write_text("tampered", encoding="utf-8")
     changed = verify_lock(tmp_path)
-    assert any(item.name == MANAGED_TOOLS[0].name and item.status == "mismatch" for item in changed.items)
+    assert any(
+        item.name == MANAGED_TOOLS[0].name and item.status == "mismatch"
+        for item in changed.items
+    )
