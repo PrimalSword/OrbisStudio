@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import platform
-import shutil
 import sys
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -185,7 +184,14 @@ def import_native_tools(source: Path, directory: Path | None = None) -> SetupRep
     items: list[SetupItem] = []
 
     for name in NATIVE_TOOLS:
-        candidate = next((source / filename for filename in _NATIVE_FILENAMES[name] if (source / filename).is_file()), None)
+        candidate = next(
+            (
+                source / filename
+                for filename in _NATIVE_FILENAMES[name]
+                if (source / filename).is_file()
+            ),
+            None,
+        )
         if candidate is None:
             items.append(SetupItem(name, "missing", None, None, "not found in import directory"))
             continue
@@ -223,7 +229,15 @@ def verify_lock(directory: Path | None = None) -> SetupReport:
             continue
         actual = _sha256(path.read_bytes())
         status = "present" if expected == actual else "mismatch"
-        items.append(SetupItem(name, status, str(path), actual, "hash verified" if status == "present" else f"expected {expected}"))
+        items.append(
+            SetupItem(
+                name,
+                status,
+                str(path),
+                actual,
+                "hash verified" if status == "present" else f"expected {expected}",
+            )
+        )
     return SetupReport(platform.system(), platform.machine(), str(root), tuple(items))
 
 
@@ -243,7 +257,12 @@ def setup_tools(
             digest = _sha256(target.read_bytes())
             _write_launcher(root, tool)
             items.append(SetupItem(tool.name, "present", str(target), digest, "managed AOSP script"))
-            lock[tool.name] = {"path": str(target), "sha256": digest, "source": tool.url, "kind": "aosp-script"}
+            lock[tool.name] = {
+                "path": str(target),
+                "sha256": digest,
+                "source": tool.url,
+                "kind": "aosp-script",
+            }
             continue
 
         raw = downloader(tool.url)
@@ -256,7 +275,12 @@ def setup_tools(
         _atomic_write(target, payload)
         _write_launcher(root, tool)
         items.append(SetupItem(tool.name, "installed", str(target), digest, "downloaded from AOSP"))
-        lock[tool.name] = {"path": str(target), "sha256": digest, "source": tool.url, "kind": "aosp-script"}
+        lock[tool.name] = {
+            "path": str(target),
+            "sha256": digest,
+            "source": tool.url,
+            "kind": "aosp-script",
+        }
 
     _write_lock(root, lock)
     available = {item.name: item for item in inspect_toolchain(DEFAULT_TOOLS, root)}
@@ -268,7 +292,9 @@ def setup_tools(
                 "present" if status.available else "manual",
                 status.path,
                 None,
-                "native executable detected" if status.available else "use 'orbis import-native --from DIR'",
+                "native executable detected"
+                if status.available
+                else "use 'orbis import-native --from DIR'",
             )
         )
 
@@ -285,7 +311,9 @@ def doctor(directory: Path | None = None, scope: str = "full") -> SetupReport:
             item.name,
             "present" if item.available else "missing",
             item.path,
-            _sha256(Path(item.path).read_bytes()) if item.path and Path(item.path).is_file() else None,
+            _sha256(Path(item.path).read_bytes())
+            if item.path and Path(item.path).is_file()
+            else None,
             "ready" if item.available else "run 'orbis setup' or import a verified native tool",
         )
         for item in tools
