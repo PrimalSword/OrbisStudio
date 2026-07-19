@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .gpt import parse_gpt
+from .models import Partition
 
 
 class ExtractionError(RuntimeError):
@@ -38,7 +39,10 @@ class ExtractionManifest:
 
 
 def _safe_filename(name: str) -> str:
-    cleaned = "".join(character if character.isalnum() or character in "._-" else "_" for character in name)
+    cleaned = "".join(
+        character if character.isalnum() or character in "._-" else "_"
+        for character in name
+    )
     cleaned = cleaned.strip("._")
     if not cleaned:
         raise ExtractionError("GPT partition has an empty or unsafe name")
@@ -66,7 +70,8 @@ def _copy_range(source: Path, output: Path, offset: int, size: int, chunk_size: 
             os.fsync(output_stream.fileno())
         if temp.stat().st_size != size:
             raise ExtractionError(
-                f"Extracted size mismatch for {output.name}: expected {size}, got {temp.stat().st_size}"
+                f"Extracted size mismatch for {output.name}: expected {size}, "
+                f"got {temp.stat().st_size}"
             )
         os.replace(temp, output)
     except Exception:
@@ -96,9 +101,15 @@ def extract_partitions(
     known = {partition.name for partition in partitions}
     missing = sorted(requested - known)
     if missing:
-        raise ExtractionError(f"Requested GPT partitions were not found: {', '.join(missing)}")
+        raise ExtractionError(
+            f"Requested GPT partitions were not found: {', '.join(missing)}"
+        )
 
-    selected = [partition for partition in partitions if not requested or partition.name in requested]
+    selected = [
+        partition
+        for partition in partitions
+        if not requested or partition.name in requested
+    ]
     if not selected:
         raise ExtractionError("No GPT partitions selected for extraction")
 
@@ -113,12 +124,14 @@ def extract_partitions(
 
     output_directory.mkdir(parents=True, exist_ok=True)
     filenames: set[str] = set()
-    targets: list[tuple[object, Path]] = []
+    targets: list[tuple[Partition, Path]] = []
     for partition in selected:
         filename = _safe_filename(partition.name) + ".img"
         folded = filename.casefold()
         if folded in filenames:
-            raise ExtractionError(f"Partition filenames collide after sanitization: {filename}")
+            raise ExtractionError(
+                f"Partition filenames collide after sanitization: {filename}"
+            )
         filenames.add(folded)
         output = output_directory / filename
         if output.exists() and not overwrite:
