@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orbisstudio"
-version = "0.2.0"
+version = "0.3.0"
 description = "Android firmware engineering laboratory for HY300/H713"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,7 +15,7 @@ dependencies = []
 dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
 
 [project.scripts]
-orbis = "orbisstudio.cli:main"
+orbis = "orbisstudio.entry:main"
 orbis-extract = "orbisstudio.extract_cli:main"
 orbis-lab = "orbisstudio.lab_cli:main"
 orbis-boot = "orbisstudio.boot_cli:main"
