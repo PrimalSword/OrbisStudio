@@ -46,19 +46,49 @@ def inspect_device_tree(image: Path) -> DeviceTreeReport:
         count = struct.unpack_from(">I", data, 20)[0]
     else:
         raise DeviceTreeError(f"unknown device-tree magic: 0x{magic:08x}")
-    return DeviceTreeReport(str(image), kind, len(data), hashlib.sha256(data).hexdigest(), count)
+    return DeviceTreeReport(
+        str(image),
+        kind,
+        len(data),
+        hashlib.sha256(data).hexdigest(),
+        count,
+    )
 
 
-def unpack_dtbo(image: Path, output_directory: Path, mkdtimg: Path | None = None) -> tuple[Path, ...]:
+def unpack_dtbo(
+    image: Path,
+    output_directory: Path,
+    mkdtimg: Path | None = None,
+) -> tuple[Path, ...]:
     output_directory = output_directory.expanduser().resolve()
     output_directory.mkdir(parents=True, exist_ok=True)
     tool = resolve_tool("mkdtimg", mkdtimg)
-    run_tool([str(tool), "dump", str(image.expanduser().resolve()), "-b", str(output_directory / "dtbo")])
+    run_tool(
+        [
+            str(tool),
+            "dump",
+            str(image.expanduser().resolve()),
+            "-b",
+            str(output_directory / "dtbo"),
+        ]
+    )
     return tuple(sorted(output_directory.glob("dtbo.*")))
 
 
 def decompile_dtb(image: Path, output: Path, dtc: Path | None = None) -> Path:
-    output = output.expanduser().resolve(); output.parent.mkdir(parents=True, exist_ok=True)
+    output = output.expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
     tool = resolve_tool("dtc", dtc)
-    run_tool([str(tool), "-I", "dtb", "-O", "dts", "-o", str(output), str(image.expanduser().resolve())])
+    run_tool(
+        [
+            str(tool),
+            "-I",
+            "dtb",
+            "-O",
+            "dts",
+            "-o",
+            str(output),
+            str(image.expanduser().resolve()),
+        ]
+    )
     return output
