@@ -6,6 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .diff import compare_trees
+from .ext4 import DebugfsEditor, Ext4Error
 from .gpt import parse_gpt
 from .models import ProjectLayout
 from .super_builder import build_super
@@ -59,6 +60,43 @@ def command_build_super(args: argparse.Namespace) -> int:
     return 0
 
 
+def _editor(args: argparse.Namespace) -> DebugfsEditor:
+    return DebugfsEditor(Path(args.debugfs) if args.debugfs else None)
+
+
+def command_ext4_inspect(args: argparse.Namespace) -> int:
+    print(_editor(args).inspect(Path(args.image)))
+    return 0
+
+
+def command_ext4_extract(args: argparse.Namespace) -> int:
+    output = _editor(args).extract(Path(args.image), args.source, Path(args.output))
+    print(json.dumps({"output": str(output)}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _parse_replacement(value: str) -> tuple[Path, str]:
+    if "=" not in value:
+        raise argparse.ArgumentTypeError("Replacement must use LOCAL_FILE=/absolute/path/in/image")
+    source, destination = value.split("=", 1)
+    if not source or not destination:
+        raise argparse.ArgumentTypeError("Replacement must include source and destination")
+    return Path(source), destination
+
+
+def command_ext4_build(args: argparse.Namespace) -> int:
+    replacements = [_parse_replacement(value) for value in args.replace]
+    manifest = _editor(args).build(
+        source_image=Path(args.image),
+        output_image=Path(args.output),
+        replacements=replacements,
+        removals=args.remove,
+        manifest_path=Path(args.manifest) if args.manifest else None,
+    )
+    print(manifest.to_json())
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="orbis", description="OrbisStudio firmware lab")
     commands = root.add_subparsers(dest="command", required=True)
@@ -83,9 +121,45 @@ def parser() -> argparse.ArgumentParser:
     super_cmd.add_argument("--profile", required=True)
     super_cmd.add_argument("--output", required=True)
     super_cmd.set_defaults(handler=command_build_super)
+
+    ext4_inspect = commands.add_parser("ext4-inspect", help="Validate and inspect an EXT4 image")
+    ext4_inspect.add_argument("--image", required=True)
+    ext4_inspect.add_argument("--debugfs")
+    ext4_inspect.set_defaults(handler=command_ext4_inspect)
+
+    ext4_extract = commands.add_parser("ext4-extract", help="Extract one file from an EXT4 image")
+    ext4_extract.add_argument("--image", required=True)
+    ext4_extract.add_argument("--source", required=True)
+    ext4_extract.add_argument("--output", required=True)
+    ext4_extract.add_argument("--debugfs")
+    ext4_extract.set_defaults(handler=command_ext4_extract)
+
+    ext4_build = commands.add_parser("ext4-build", help="Create and verify an edited EXT4 image copy")
+    ext4_build.add_argument("--image", required=True, help="Untouched source EXT4 image")
+    ext4_build.add_argument("--output", required=True, help="New edited EXT4 image")
+    ext4_build.add_argument(
+        "--replace",
+        action="append",
+        default=[],
+        metavar="LOCAL=DESTINATION",
+        help="Replace a file; may be repeated",
+    )
+    ext4_build.add_argument(
+        "--remove",
+        action="append",
+        default=[],
+        metavar="DESTINATION",
+        help="Remove a file; may be repeated",
+    )
+    ext4_build.add_argument("--manifest", help="Write a JSON build manifest")
+    ext4_build.add_argument("--debugfs", help="Path to debugfs.exe/debugfs")
+    ext4_build.set_defaults(handler=command_ext4_build)
     return root
 
 
 def main() -> None:
     args = parser().parse_args()
-    raise SystemExit(args.handler(args))
+    try:
+        raise SystemExit(args.handler(args))
+    except Ext4Error as error:
+        raise SystemExit(f"EXT4 error: {error}") from error
