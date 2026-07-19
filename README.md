@@ -13,6 +13,7 @@ OrbisStudio é um laboratório de engenharia de firmware Android voltado inicial
 - leitura, validação, conversão raw→sparse e sparse→raw;
 - inspeção e verificação AVB por `avbtool`;
 - pipeline JSON integrado para EXT4 → sparse → super → AVB;
+- workspaces de firmware com manifesto, hashes e separação Stock/Work/Output;
 - manifestos e relatórios reproduzíveis;
 - bootstrap gerenciado da toolchain em Windows, Linux e macOS;
 - testes automatizados, lint e tipagem estática.
@@ -61,6 +62,37 @@ pytest -q
 mypy src
 ```
 
+## Workspace de firmware
+
+Um dump pode ser transformado em projeto reproduzível com um único comando:
+
+```powershell
+orbis workspace-create --source C:\Firmware\HY300-Dump --project C:\OrbisProjects\HY300 --name "HY300 Stock" --copy-to-work
+```
+
+O comando aceita uma imagem isolada ou uma pasta contendo arquivos `.img` e `.bin`. O projeto criado possui:
+
+```text
+HY300\
+├── Stock\
+├── Logical\
+├── Work\
+├── Output\
+├── Reports\
+├── Profiles\
+├── Backups\
+└── .orbis.json
+```
+
+`Stock` é tratado como base imutável. O manifesto `.orbis.json` registra origem, tamanho e SHA-256 de cada artefato. Antes de qualquer build, valide a base:
+
+```powershell
+orbis workspace-info --project C:\OrbisProjects\HY300
+orbis workspace-verify --project C:\OrbisProjects\HY300
+```
+
+Qualquer alteração, ausência ou substituição de uma imagem em `Stock` faz a verificação retornar código de saída `2`.
+
 ## Comandos principais
 
 ```powershell
@@ -69,6 +101,9 @@ orbis setup
 orbis doctor --scope core
 orbis import-native --from C:\caminho\toolchain
 orbis verify-tools
+orbis workspace-create --source C:\Firmware\Dump --project C:\OrbisProjects\HY300
+orbis workspace-info --project C:\OrbisProjects\HY300
+orbis workspace-verify --project C:\OrbisProjects\HY300
 orbis inspect-gpt --image Backup\mmcblk0.img
 orbis ext4-inspect --image Backup\Extracted\Logical\system_a.img
 orbis ext4-build --image system_a.img --output system_a_orbis.img --replace novo.apk=/system/app/App/App.apk
