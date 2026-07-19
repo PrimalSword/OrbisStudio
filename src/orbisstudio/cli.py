@@ -5,10 +5,13 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+from .avb import AvbError, AvbTool
 from .diff import compare_trees
 from .ext4 import DebugfsEditor, Ext4Error
 from .gpt import parse_gpt
 from .models import ProjectLayout
+from .pipeline import PipelineError, run_pipeline
+from .sparse import SparseError, inspect_sparse, sparse_raw, unsparse
 from .super_builder import build_super
 
 
@@ -20,10 +23,7 @@ def command_init(args: argparse.Namespace) -> int:
 
 def command_inspect_gpt(args: argparse.Namespace) -> int:
     header, partitions = parse_gpt(Path(args.image), sector_size=args.sector_size)
-    payload = {
-        "header": asdict(header),
-        "partitions": [asdict(partition) for partition in partitions],
-    }
+    payload = {"header": asdict(header), "partitions": [asdict(p) for p in partitions]}
     text = json.dumps(payload, ensure_ascii=False, indent=2)
     if args.output:
         Path(args.output).write_text(text, encoding="utf-8")
@@ -45,17 +45,8 @@ def command_diff(args: argparse.Namespace) -> int:
 
 def command_build_super(args: argparse.Namespace) -> int:
     logical = Path(args.logical)
-    logical_images = {
-        name: logical / f"{name}.img"
-        for name in ("system_a", "vendor_a", "product_a")
-        if (logical / f"{name}.img").is_file()
-    }
-    manifest = build_super(
-        original_super=Path(args.original_super),
-        logical_images=logical_images,
-        profile_path=Path(args.profile),
-        output=Path(args.output),
-    )
+    images = {name: logical / f"{name}.img" for name in ("system_a", "vendor_a", "product_a") if (logical / f"{name}.img").is_file()}
+    manifest = build_super(Path(args.original_super), images, Path(args.profile), Path(args.output))
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
     return 0
 
@@ -71,7 +62,7 @@ def command_ext4_inspect(args: argparse.Namespace) -> int:
 
 def command_ext4_extract(args: argparse.Namespace) -> int:
     output = _editor(args).extract(Path(args.image), args.source, Path(args.output))
-    print(json.dumps({"output": str(output)}, ensure_ascii=False, indent=2))
+    print(json.dumps({"output": str(output)}, indent=2))
     return 0
 
 
@@ -85,15 +76,53 @@ def _parse_replacement(value: str) -> tuple[Path, str]:
 
 
 def command_ext4_build(args: argparse.Namespace) -> int:
-    replacements = [_parse_replacement(value) for value in args.replace]
     manifest = _editor(args).build(
-        source_image=Path(args.image),
-        output_image=Path(args.output),
-        replacements=replacements,
-        removals=args.remove,
-        manifest_path=Path(args.manifest) if args.manifest else None,
+        Path(args.image), Path(args.output),
+        [_parse_replacement(v) for v in args.replace], args.remove,
+        Path(args.manifest) if args.manifest else None,
     )
     print(manifest.to_json())
+    return 0
+
+
+def command_sparse_inspect(args: argparse.Namespace) -> int:
+    header, chunks = inspect_sparse(Path(args.image))
+    print(json.dumps({"header": asdict(header), "chunks": [asdict(c) for c in chunks]}, indent=2))
+    return 0
+
+
+def command_unsparse(args: argparse.Namespace) -> int:
+    print(json.dumps(unsparse(Path(args.image), Path(args.output)).as_dict(), indent=2))
+    return 0
+
+
+def command_sparse(args: argparse.Namespace) -> int:
+    print(json.dumps(sparse_raw(Path(args.image), Path(args.output), args.block_size, args.max_chunk_blocks).as_dict(), indent=2))
+    return 0
+
+
+def _avb(args: argparse.Namespace) -> AvbTool:
+    return AvbTool(Path(args.avbtool) if args.avbtool else None)
+
+
+def command_avb_info(args: argparse.Namespace) -> int:
+    print(_avb(args).info(Path(args.image)))
+    return 0
+
+
+def command_avb_verify(args: argparse.Namespace) -> int:
+    report = _avb(args).verify(Path(args.image), Path(args.key) if args.key else None, args.expected_chain_partition)
+    print(report.to_json())
+    return 0 if report.verified else 2
+
+
+def command_pipeline(args: argparse.Namespace) -> int:
+    result = run_pipeline(
+        Path(args.plan),
+        Path(args.debugfs) if args.debugfs else None,
+        Path(args.avbtool) if args.avbtool else None,
+    )
+    print(result.to_json())
     return 0
 
 
@@ -101,59 +130,23 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="orbis", description="OrbisStudio firmware lab")
     commands = root.add_subparsers(dest="command", required=True)
 
-    init = commands.add_parser("init", help="Create a permanent project layout")
-    init.add_argument("--project", required=True)
-    init.set_defaults(handler=command_init)
+    p = commands.add_parser("init"); p.add_argument("--project", required=True); p.set_defaults(handler=command_init)
+    p = commands.add_parser("inspect-gpt"); p.add_argument("--image", required=True); p.add_argument("--sector-size", type=int, default=512); p.add_argument("--output"); p.set_defaults(handler=command_inspect_gpt)
+    p = commands.add_parser("diff"); p.add_argument("--project", required=True); p.set_defaults(handler=command_diff)
+    p = commands.add_parser("build-super"); p.add_argument("--original-super", required=True); p.add_argument("--logical", required=True); p.add_argument("--profile", required=True); p.add_argument("--output", required=True); p.set_defaults(handler=command_build_super)
 
-    inspect = commands.add_parser("inspect-gpt", help="Parse and validate a GPT image")
-    inspect.add_argument("--image", required=True)
-    inspect.add_argument("--sector-size", type=int, default=512)
-    inspect.add_argument("--output")
-    inspect.set_defaults(handler=command_inspect_gpt)
+    p = commands.add_parser("ext4-inspect"); p.add_argument("--image", required=True); p.add_argument("--debugfs"); p.set_defaults(handler=command_ext4_inspect)
+    p = commands.add_parser("ext4-extract"); p.add_argument("--image", required=True); p.add_argument("--source", required=True); p.add_argument("--output", required=True); p.add_argument("--debugfs"); p.set_defaults(handler=command_ext4_extract)
+    p = commands.add_parser("ext4-build"); p.add_argument("--image", required=True); p.add_argument("--output", required=True); p.add_argument("--replace", action="append", default=[]); p.add_argument("--remove", action="append", default=[]); p.add_argument("--manifest"); p.add_argument("--debugfs"); p.set_defaults(handler=command_ext4_build)
 
-    diff = commands.add_parser("diff", help="Compare Stock and Work trees")
-    diff.add_argument("--project", required=True)
-    diff.set_defaults(handler=command_diff)
+    p = commands.add_parser("sparse-inspect"); p.add_argument("--image", required=True); p.set_defaults(handler=command_sparse_inspect)
+    p = commands.add_parser("unsparse"); p.add_argument("--image", required=True); p.add_argument("--output", required=True); p.set_defaults(handler=command_unsparse)
+    p = commands.add_parser("sparse"); p.add_argument("--image", required=True); p.add_argument("--output", required=True); p.add_argument("--block-size", type=int, default=4096); p.add_argument("--max-chunk-blocks", type=int, default=1024); p.set_defaults(handler=command_sparse)
 
-    super_cmd = commands.add_parser("build-super", help="Inject logical images into a copy of super.img")
-    super_cmd.add_argument("--original-super", required=True)
-    super_cmd.add_argument("--logical", required=True)
-    super_cmd.add_argument("--profile", required=True)
-    super_cmd.add_argument("--output", required=True)
-    super_cmd.set_defaults(handler=command_build_super)
+    p = commands.add_parser("avb-info"); p.add_argument("--image", required=True); p.add_argument("--avbtool"); p.set_defaults(handler=command_avb_info)
+    p = commands.add_parser("avb-verify"); p.add_argument("--image", required=True); p.add_argument("--avbtool"); p.add_argument("--key"); p.add_argument("--expected-chain-partition", action="append", default=[]); p.set_defaults(handler=command_avb_verify)
 
-    ext4_inspect = commands.add_parser("ext4-inspect", help="Validate and inspect an EXT4 image")
-    ext4_inspect.add_argument("--image", required=True)
-    ext4_inspect.add_argument("--debugfs")
-    ext4_inspect.set_defaults(handler=command_ext4_inspect)
-
-    ext4_extract = commands.add_parser("ext4-extract", help="Extract one file from an EXT4 image")
-    ext4_extract.add_argument("--image", required=True)
-    ext4_extract.add_argument("--source", required=True)
-    ext4_extract.add_argument("--output", required=True)
-    ext4_extract.add_argument("--debugfs")
-    ext4_extract.set_defaults(handler=command_ext4_extract)
-
-    ext4_build = commands.add_parser("ext4-build", help="Create and verify an edited EXT4 image copy")
-    ext4_build.add_argument("--image", required=True, help="Untouched source EXT4 image")
-    ext4_build.add_argument("--output", required=True, help="New edited EXT4 image")
-    ext4_build.add_argument(
-        "--replace",
-        action="append",
-        default=[],
-        metavar="LOCAL=DESTINATION",
-        help="Replace a file; may be repeated",
-    )
-    ext4_build.add_argument(
-        "--remove",
-        action="append",
-        default=[],
-        metavar="DESTINATION",
-        help="Remove a file; may be repeated",
-    )
-    ext4_build.add_argument("--manifest", help="Write a JSON build manifest")
-    ext4_build.add_argument("--debugfs", help="Path to debugfs.exe/debugfs")
-    ext4_build.set_defaults(handler=command_ext4_build)
+    p = commands.add_parser("build", help="Run a complete JSON build plan"); p.add_argument("--plan", required=True); p.add_argument("--debugfs"); p.add_argument("--avbtool"); p.set_defaults(handler=command_pipeline)
     return root
 
 
@@ -161,5 +154,5 @@ def main() -> None:
     args = parser().parse_args()
     try:
         raise SystemExit(args.handler(args))
-    except Ext4Error as error:
-        raise SystemExit(f"EXT4 error: {error}") from error
+    except (Ext4Error, SparseError, AvbError, PipelineError) as error:
+        raise SystemExit(f"Orbis error: {error}") from error
