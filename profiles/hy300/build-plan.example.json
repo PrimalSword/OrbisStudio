@@ -1,0 +1,45 @@
+{
+  "partitions": [
+    {
+      "name": "system_a",
+      "source": "../../Backup/Extracted/Logical/system_a.img",
+      "output": "../../Build/Logical/system_a.img",
+      "replace": [
+        {
+          "source": "../../Payload/system/media/bootanimation.zip",
+          "destination": "/system/media/bootanimation.zip"
+        }
+      ],
+      "remove": [],
+      "sparse_output": "../../Build/Sparse/system_a.sparse.img"
+    },
+    {
+      "name": "vendor_a",
+      "source": "../../Backup/Extracted/Logical/vendor_a.img",
+      "output": "../../Build/Logical/vendor_a.img",
+      "replace": [],
+      "remove": []
+    },
+    {
+      "name": "product_a",
+      "source": "../../Backup/Extracted/Logical/product_a.img",
+      "output": "../../Build/Logical/product_a.img",
+      "replace": [],
+      "remove": []
+    }
+  ],
+  "super": {
+    "enabled": true,
+    "original": "../../Backup/Images/super.img",
+    "profile": "../../Backup/Profiles/lp-profile.json",
+    "output": "../../Build/super_orbis.img"
+  },
+  "avb": {
+    "verify": false,
+    "strict": true,
+    "images": [
+      "../../Build/super_orbis.img"
+    ]
+  },
+  "report": "../../Build/build-report.json"
+}
