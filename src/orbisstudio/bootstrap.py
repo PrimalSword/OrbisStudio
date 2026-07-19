@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import sys
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -42,10 +43,17 @@ class SetupReport:
     architecture: str
     tools_directory: str
     items: tuple[SetupItem, ...]
+    scope: str = "full"
 
     @property
     def ready(self) -> bool:
-        return all(item.status in {"installed", "present"} for item in self.items)
+        required = CORE_TOOLS if self.scope == "core" else DEFAULT_TOOLS
+        by_name = {item.name: item for item in self.items}
+        return all(
+            by_name.get(name) is not None
+            and by_name[name].status in {"installed", "present", "imported"}
+            for name in required
+        )
 
     def to_json(self) -> str:
         payload = asdict(self)
@@ -53,7 +61,6 @@ class SetupReport:
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-# Pinned AOSP revisions. Python tools are portable and receive local .cmd launchers on Windows.
 MANAGED_TOOLS: tuple[ManagedTool, ...] = (
     ManagedTool(
         "avbtool",
@@ -85,6 +92,24 @@ NATIVE_TOOLS = (
     "dtc",
 )
 
+CORE_TOOLS = (
+    "lpunpack",
+    "lpmake",
+    "avbtool",
+    "mkbootimg",
+    "unpack_bootimg",
+    "dtc",
+    "mkdtimg",
+)
+
+_NATIVE_FILENAMES: dict[str, tuple[str, ...]] = {
+    "lpunpack": ("lpunpack.exe", "lpunpack"),
+    "lpmake": ("lpmake.exe", "lpmake"),
+    "payload_generator": ("payload_generator.exe", "payload_generator"),
+    "brillo_update_payload": ("brillo_update_payload.exe", "brillo_update_payload"),
+    "dtc": ("dtc.exe", "dtc"),
+}
+
 
 def default_tools_directory() -> Path:
     configured = os.environ.get("ORBIS_TOOLS")
@@ -94,7 +119,7 @@ def default_tools_directory() -> Path:
 
 
 def _download(url: str, timeout: int = 60) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": "OrbisStudio/0.3"})
+    request = urllib.request.Request(url, headers={"User-Agent": "OrbisStudio/0.4"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
 
@@ -134,6 +159,74 @@ def _write_launcher(directory: Path, tool: ManagedTool) -> Path:
     return launcher
 
 
+def _read_lock(root: Path) -> dict[str, dict[str, str]]:
+    path = root / "toolchain.lock.json"
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise BootstrapError("invalid toolchain lock file")
+    return {str(name): dict(value) for name, value in data.items() if isinstance(value, dict)}
+
+
+def _write_lock(root: Path, lock: dict[str, dict[str, str]]) -> None:
+    (root / "toolchain.lock.json").write_text(
+        json.dumps(lock, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def import_native_tools(source: Path, directory: Path | None = None) -> SetupReport:
+    source = source.expanduser().resolve()
+    if not source.is_dir():
+        raise BootstrapError(f"native tool source is not a directory: {source}")
+    root = (directory or default_tools_directory()).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    lock = _read_lock(root)
+    items: list[SetupItem] = []
+
+    for name in NATIVE_TOOLS:
+        candidate = next((source / filename for filename in _NATIVE_FILENAMES[name] if (source / filename).is_file()), None)
+        if candidate is None:
+            items.append(SetupItem(name, "missing", None, None, "not found in import directory"))
+            continue
+        payload = candidate.read_bytes()
+        if not payload:
+            raise BootstrapError(f"refusing to import empty tool: {candidate}")
+        target = root / candidate.name
+        _atomic_write(target, payload)
+        digest = _sha256(payload)
+        lock[name] = {
+            "path": str(target),
+            "sha256": digest,
+            "source": str(candidate),
+            "kind": "native-import",
+        }
+        items.append(SetupItem(name, "imported", str(target), digest, "copied and hash-locked"))
+
+    _write_lock(root, lock)
+    return doctor(root)
+
+
+def verify_lock(directory: Path | None = None) -> SetupReport:
+    root = (directory or default_tools_directory()).expanduser().resolve()
+    lock = _read_lock(root)
+    items: list[SetupItem] = []
+    for name in DEFAULT_TOOLS:
+        entry = lock.get(name)
+        if entry is None:
+            items.append(SetupItem(name, "unlocked", None, None, "no lock entry"))
+            continue
+        path = Path(entry.get("path", ""))
+        expected = entry.get("sha256")
+        if not path.is_file():
+            items.append(SetupItem(name, "missing", str(path), expected, "locked file is absent"))
+            continue
+        actual = _sha256(path.read_bytes())
+        status = "present" if expected == actual else "mismatch"
+        items.append(SetupItem(name, status, str(path), actual, "hash verified" if status == "present" else f"expected {expected}"))
+    return SetupReport(platform.system(), platform.machine(), str(root), tuple(items))
+
+
 def setup_tools(
     directory: Path | None = None,
     force: bool = False,
@@ -142,7 +235,7 @@ def setup_tools(
     root = (directory or default_tools_directory()).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     items: list[SetupItem] = []
-    lock: dict[str, dict[str, str]] = {}
+    lock = _read_lock(root)
 
     for tool in MANAGED_TOOLS:
         target = root / tool.filename
@@ -150,7 +243,7 @@ def setup_tools(
             digest = _sha256(target.read_bytes())
             _write_launcher(root, tool)
             items.append(SetupItem(tool.name, "present", str(target), digest, "managed AOSP script"))
-            lock[tool.name] = {"path": str(target), "sha256": digest, "source": tool.url}
+            lock[tool.name] = {"path": str(target), "sha256": digest, "source": tool.url, "kind": "aosp-script"}
             continue
 
         raw = downloader(tool.url)
@@ -163,12 +256,9 @@ def setup_tools(
         _atomic_write(target, payload)
         _write_launcher(root, tool)
         items.append(SetupItem(tool.name, "installed", str(target), digest, "downloaded from AOSP"))
-        lock[tool.name] = {"path": str(target), "sha256": digest, "source": tool.url}
+        lock[tool.name] = {"path": str(target), "sha256": digest, "source": tool.url, "kind": "aosp-script"}
 
-    (root / "toolchain.lock.json").write_text(
-        json.dumps(lock, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-
+    _write_lock(root, lock)
     available = {item.name: item for item in inspect_toolchain(DEFAULT_TOOLS, root)}
     for name in NATIVE_TOOLS:
         status = available[name]
@@ -178,14 +268,16 @@ def setup_tools(
                 "present" if status.available else "manual",
                 status.path,
                 None,
-                "native executable detected" if status.available else "native binary is not bundled yet",
+                "native executable detected" if status.available else "use 'orbis import-native --from DIR'",
             )
         )
 
     return SetupReport(platform.system(), platform.machine(), str(root), tuple(items))
 
 
-def doctor(directory: Path | None = None) -> SetupReport:
+def doctor(directory: Path | None = None, scope: str = "full") -> SetupReport:
+    if scope not in {"core", "full"}:
+        raise BootstrapError(f"invalid doctor scope: {scope}")
     root = (directory or default_tools_directory()).expanduser().resolve()
     tools = inspect_toolchain(DEFAULT_TOOLS, root)
     items = tuple(
@@ -194,8 +286,8 @@ def doctor(directory: Path | None = None) -> SetupReport:
             "present" if item.available else "missing",
             item.path,
             _sha256(Path(item.path).read_bytes()) if item.path and Path(item.path).is_file() else None,
-            "ready" if item.available else "run 'orbis setup' or provide ORBIS_TOOLS",
+            "ready" if item.available else "run 'orbis setup' or import a verified native tool",
         )
         for item in tools
     )
-    return SetupReport(platform.system(), platform.machine(), str(root), items)
+    return SetupReport(platform.system(), platform.machine(), str(root), items, scope)
