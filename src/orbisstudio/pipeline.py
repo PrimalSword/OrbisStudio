@@ -57,14 +57,34 @@ def parse_partition_plans(data: dict[str, object], base: Path) -> tuple[Partitio
         source = (base / str(item.get("source", ""))).resolve()
         output = (base / str(item.get("output", ""))).resolve()
         replacements: list[tuple[Path, str]] = []
-        for replacement in item.get("replace", []):
+        raw_replacements = item.get("replace", [])
+        if not isinstance(raw_replacements, list):
+            raise PipelineError(f"replace must be an array in {name}")
+        for replacement in raw_replacements:
             if not isinstance(replacement, dict):
                 raise PipelineError(f"Invalid replacement in {name}")
-            replacements.append(((base / str(replacement["source"])).resolve(), str(replacement["destination"])))
-        removals = tuple(str(value) for value in item.get("remove", []))
+            replacements.append(
+                (
+                    (base / str(replacement["source"])).resolve(),
+                    str(replacement["destination"]),
+                )
+            )
+        raw_removals = item.get("remove", [])
+        if not isinstance(raw_removals, list):
+            raise PipelineError(f"remove must be an array in {name}")
+        removals = tuple(str(value) for value in raw_removals)
         sparse_value = item.get("sparse_output")
         sparse_output = (base / str(sparse_value)).resolve() if sparse_value else None
-        plans.append(PartitionPlan(name, source, output, tuple(replacements), removals, sparse_output))
+        plans.append(
+            PartitionPlan(
+                name,
+                source,
+                output,
+                tuple(replacements),
+                removals,
+                sparse_output,
+            )
+        )
     return tuple(plans)
 
 
@@ -82,7 +102,9 @@ def run_pipeline(
 
     for plan in parse_partition_plans(data, base):
         if plan.replacements or plan.removals:
-            manifest_path = plan.output_image.with_suffix(plan.output_image.suffix + ".manifest.json")
+            manifest_path = plan.output_image.with_suffix(
+                plan.output_image.suffix + ".manifest.json"
+            )
             manifest: Ext4BuildManifest = editor.build(
                 source_image=plan.source_image,
                 output_image=plan.output_image,
@@ -90,16 +112,23 @@ def run_pipeline(
                 removals=plan.removals,
                 manifest_path=manifest_path,
             )
-            result: dict[str, object] = asdict(manifest)
+            partition_result: dict[str, object] = asdict(manifest)
         else:
             if plan.source_image != plan.output_image:
                 plan.output_image.parent.mkdir(parents=True, exist_ok=True)
                 plan.output_image.write_bytes(plan.source_image.read_bytes())
-            result = {"source_image": str(plan.source_image), "output_image": str(plan.output_image), "changes": []}
+            partition_result = {
+                "source_image": str(plan.source_image),
+                "output_image": str(plan.output_image),
+                "changes": [],
+            }
         if plan.sparse_output is not None:
-            sparse_manifest: SparseManifest = sparse_raw(plan.output_image, plan.sparse_output)
-            result["sparse"] = sparse_manifest.as_dict()
-        partition_results.append(result)
+            sparse_manifest: SparseManifest = sparse_raw(
+                plan.output_image,
+                plan.sparse_output,
+            )
+            partition_result["sparse"] = sparse_manifest.as_dict()
+        partition_results.append(partition_result)
         logical_images[plan.name] = plan.output_image
 
     super_result: dict[str, object] | None = None
@@ -120,17 +149,26 @@ def run_pipeline(
     avb_plan = data.get("avb")
     if isinstance(avb_plan, dict) and avb_plan.get("verify"):
         tool = AvbTool(avbtool)
-        images: Iterable[object] = avb_plan.get("images", [])
-        for image in images:
+        raw_images = avb_plan.get("images", [])
+        if not isinstance(raw_images, Iterable) or isinstance(raw_images, (str, bytes, dict)):
+            raise PipelineError("avb images must be an array")
+        for image in raw_images:
             report: AvbReport = tool.verify((base / str(image)).resolve())
             avb_reports.append(asdict(report))
             if not report.verified and avb_plan.get("strict", True):
-                raise PipelineError(f"AVB verification failed: {image}\n{report.verification_output}")
+                raise PipelineError(
+                    f"AVB verification failed: {image}\n{report.verification_output}"
+                )
 
-    result = PipelineResult(str(base), tuple(partition_results), super_result, tuple(avb_reports))
+    pipeline_result = PipelineResult(
+        str(base),
+        tuple(partition_results),
+        super_result,
+        tuple(avb_reports),
+    )
     report_path = data.get("report")
     if report_path:
         target = (base / str(report_path)).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(result.to_json() + "\n", encoding="utf-8")
-    return result
+        target.write_text(pipeline_result.to_json() + "\n", encoding="utf-8")
+    return pipeline_result
