@@ -14,7 +14,8 @@ OrbisStudio é um laboratório de engenharia de firmware Android voltado inicial
 - inspeção e verificação AVB por `avbtool`;
 - pipeline JSON integrado para EXT4 → sparse → super → AVB;
 - manifestos e relatórios reproduzíveis;
-- testes automatizados e configuração Windows em um comando.
+- bootstrap gerenciado da toolchain em Windows, Linux e macOS;
+- testes automatizados, lint e tipagem estática.
 
 ## Instalação no Windows
 
@@ -23,9 +24,22 @@ Abra o PowerShell dentro da pasta clonada do projeto:
 ```powershell
 git clone https://github.com/PrimalSword/OrbisStudio.git
 cd OrbisStudio
+py -m venv .venv
 Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\setup-windows.ps1
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
 ```
+
+Instale as ferramentas portáteis gerenciadas e gere o diagnóstico:
+
+```powershell
+orbis setup
+orbis doctor
+```
+
+O bootstrap baixa scripts oficiais do AOSP para `~/.orbisstudio/tools`, cria launchers locais e registra origem e SHA-256 em `toolchain.lock.json`. A pasta pode ser alterada com `--tools-dir` ou pela variável `ORBIS_TOOLS`.
+
+Nesta versão, `avbtool`, `mkbootimg`, `unpack_bootimg` e `mkdtimg` são instalados automaticamente. Ferramentas que exigem binários nativos — como `lpunpack`, `lpmake`, `dtc`, `payload_generator` e `brillo_update_payload` — são detectadas e reportadas pelo `doctor`, mas ainda não são baixadas automaticamente.
 
 Nas próximas atualizações:
 
@@ -33,12 +47,17 @@ Nas próximas atualizações:
 cd C:\caminho\OrbisStudio
 git pull
 .\.venv\Scripts\Activate.ps1
-python -m pytest
+python -m pip install -e ".[dev]"
+ruff check src tests
+pytest -q
+mypy src
 ```
 
 ## Comandos principais
 
 ```powershell
+orbis setup
+orbis doctor
 orbis inspect-gpt --image Backup\mmcblk0.img
 orbis ext4-inspect --image Backup\Extracted\Logical\system_a.img
 orbis ext4-build --image system_a.img --output system_a_orbis.img --replace novo.apk=/system/app/App/App.apk
@@ -64,8 +83,8 @@ Ajuste os caminhos do exemplo para a pasta real do backup antes de executar.
 
 ## Segurança
 
-A imagem física original nunca é alterada. Os módulos recusam sobrescrever a origem e usam arquivos temporários antes da substituição atômica da saída. Flash continua deliberadamente fora do fluxo padrão até que boot, AVB, rollback e recuperação estejam validados no hardware.
+A imagem física original nunca é alterada. Os módulos recusam sobrescrever a origem e usam arquivos temporários antes da substituição atômica da saída. O bootstrap não altera o `PATH` global do Windows e registra a origem e o hash local das ferramentas gerenciadas. Flash continua deliberadamente fora do fluxo padrão até que boot, AVB, rollback e recuperação estejam validados no hardware.
 
 ## Limites atuais
 
-O suporte ao HY300 ainda depende de `debugfs` para escrita EXT4 e de `avbtool` para Android Verified Boot. A emulação integral do Allwinner H713 não está disponível; as validações sem hardware cobrem estrutura, hashes, EXT4, sparse, LP e AVB, mas não substituem um teste final controlado no aparelho.
+O suporte ao HY300 ainda depende de ferramentas nativas para manipulação completa de partições dinâmicas, Device Tree e OTA A/B. A emulação integral do Allwinner H713 não está disponível; as validações sem hardware cobrem estrutura, hashes, EXT4, sparse, LP e AVB, mas não substituem um teste final controlado no aparelho.
