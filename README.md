@@ -1,49 +1,71 @@
 # OrbisStudio
 
-OrbisStudio é um laboratório de engenharia de firmware Android voltado inicialmente ao projetor HY300/H713. O objetivo é oferecer um fluxo reproduzível para:
+OrbisStudio é um laboratório de engenharia de firmware Android voltado inicialmente ao projetor HY300/H713. O fluxo preserva a imagem física original e trabalha somente sobre cópias verificáveis.
 
-1. importar e preservar uma imagem física original;
-2. mapear GPT e Android Dynamic Partitions;
-3. extrair e inspecionar partições EXT4;
-4. aplicar alterações somente em uma árvore de trabalho;
-5. reconstruir imagens lógicas e `super.img` em cópias;
-6. validar estrutura, hashes e AVB antes de qualquer gravação no aparelho.
+## Capacidades atuais
 
-## Estado do projeto
+- parser GPT com CRC;
+- leitura de metadata LP por perfil;
+- extração e remontagem lógica de `super.img` preservando extents;
+- comparação `Stock × Work` por SHA-256;
+- edição transacional de imagens EXT4 com `debugfs`;
+- extração e verificação pós-gravação de arquivos EXT4;
+- leitura, validação, conversão raw→sparse e sparse→raw;
+- inspeção e verificação AVB por `avbtool`;
+- pipeline JSON integrado para EXT4 → sparse → super → AVB;
+- manifestos e relatórios reproduzíveis;
+- testes automatizados e configuração Windows em um comando.
 
-O repositório começa com uma base única e permanente. Não haverá mais pacotes descartáveis por versão. Cada avanço entra como commit neste repositório.
+## Instalação no Windows
 
-O código inicial inclui:
+Abra o PowerShell dentro da pasta clonada do projeto:
 
-- modelo de projeto e diretórios `Stock`, `Work`, `Build` e `Reports`;
-- parser GPT;
-- parser de metadata LP baseado em perfis exportados;
-- comparação `Stock × Work`;
-- injeção segura de arquivos modificados em imagens EXT4 por backend selecionável;
-- reconstrução de `super.img` preservando a metadata LP original;
-- validação por SHA-256;
-- CLI unificada;
-- testes automatizados.
+```powershell
+git clone https://github.com/PrimalSword/OrbisStudio.git
+cd OrbisStudio
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\setup-windows.ps1
+```
+
+Nas próximas atualizações:
+
+```powershell
+cd C:\caminho\OrbisStudio
+git pull
+.\.venv\Scripts\Activate.ps1
+python -m pytest
+```
+
+## Comandos principais
+
+```powershell
+orbis inspect-gpt --image Backup\mmcblk0.img
+orbis ext4-inspect --image Backup\Extracted\Logical\system_a.img
+orbis ext4-build --image system_a.img --output system_a_orbis.img --replace novo.apk=/system/app/App/App.apk
+orbis sparse --image system_a_orbis.img --output system_a_orbis.sparse.img
+orbis unsparse --image system_a_orbis.sparse.img --output system_a_restored.img
+orbis avb-info --image vbmeta_a.img
+orbis avb-verify --image vbmeta_a.img
+orbis build --plan profiles\hy300\build-plan.example.json
+```
+
+## Build plan
+
+O arquivo `profiles/hy300/build-plan.example.json` reúne em uma única execução:
+
+1. cópia/edição das imagens lógicas;
+2. verificação das substituições EXT4;
+3. geração opcional de sparse images;
+4. reconstrução de `super.img`;
+5. verificação AVB opcional;
+6. emissão de relatório JSON.
+
+Ajuste os caminhos do exemplo para a pasta real do backup antes de executar.
 
 ## Segurança
 
-O projeto nunca deve alterar a imagem física original. Flash permanece fora do fluxo padrão e somente será habilitado após validação explícita de AVB, rollback e método de recuperação.
+A imagem física original nunca é alterada. Os módulos recusam sobrescrever a origem e usam arquivos temporários antes da substituição atômica da saída. Flash continua deliberadamente fora do fluxo padrão até que boot, AVB, rollback e recuperação estejam validados no hardware.
 
-## Instalação para desenvolvimento
+## Limites atuais
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .[dev]
-```
-
-## Uso inicial
-
-```bash
-orbis init --project C:\OrbisOS\Room
-orbis inspect-gpt --image C:\OrbisOS\Backup\mmcblk0.img
-orbis diff --project C:\OrbisOS\Room
-orbis preflight --project C:\OrbisOS\Room --logical C:\OrbisOS\Backup\Extracted\Logical --physical C:\OrbisOS\Backup\Images
-```
-
-A documentação técnica está em `docs/`.
+O suporte ao HY300 ainda depende de `debugfs` para escrita EXT4 e de `avbtool` para Android Verified Boot. A emulação integral do Allwinner H713 não está disponível; as validações sem hardware cobrem estrutura, hashes, EXT4, sparse, LP e AVB, mas não substituem um teste final controlado no aparelho.
