@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from pathlib import Path
 import hashlib
 import json
 import shutil
+from dataclasses import asdict
+from pathlib import Path
 
 from .lp import LinearExtent, linear_extents, load_profile
 
@@ -51,7 +51,7 @@ def build_super(
             }
 
     verification = verify_super(output, logical_images, extents)
-    manifest = {
+    manifest: dict[str, object] = {
         "output": str(output),
         "sha256": sha256(output),
         "injected": injected,
