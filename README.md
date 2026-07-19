@@ -34,12 +34,20 @@ Instale as ferramentas portáteis gerenciadas e gere o diagnóstico:
 
 ```powershell
 orbis setup
-orbis doctor
+orbis doctor --scope core
+orbis verify-tools
 ```
 
 O bootstrap baixa scripts oficiais do AOSP para `~/.orbisstudio/tools`, cria launchers locais e registra origem e SHA-256 em `toolchain.lock.json`. A pasta pode ser alterada com `--tools-dir` ou pela variável `ORBIS_TOOLS`.
 
-Nesta versão, `avbtool`, `mkbootimg`, `unpack_bootimg` e `mkdtimg` são instalados automaticamente. Ferramentas que exigem binários nativos — como `lpunpack`, `lpmake`, `dtc`, `payload_generator` e `brillo_update_payload` — são detectadas e reportadas pelo `doctor`, mas ainda não são baixadas automaticamente.
+Nesta versão, `avbtool`, `mkbootimg`, `unpack_bootimg` e `mkdtimg` são instalados automaticamente. Ferramentas que exigem binários nativos — como `lpunpack`, `lpmake`, `dtc`, `payload_generator` e `brillo_update_payload` — podem ser importadas de uma pasta local confiável:
+
+```powershell
+orbis import-native --from C:\caminho\toolchain
+orbis verify-tools
+```
+
+O Orbis copia os executáveis para a pasta gerenciada, calcula o SHA-256 e registra o caminho de origem. Ele não baixa executáveis nativos de fontes não verificadas.
 
 Nas próximas atualizações:
 
@@ -56,8 +64,11 @@ mypy src
 ## Comandos principais
 
 ```powershell
+orbis --version
 orbis setup
-orbis doctor
+orbis doctor --scope core
+orbis import-native --from C:\caminho\toolchain
+orbis verify-tools
 orbis inspect-gpt --image Backup\mmcblk0.img
 orbis ext4-inspect --image Backup\Extracted\Logical\system_a.img
 orbis ext4-build --image system_a.img --output system_a_orbis.img --replace novo.apk=/system/app/App/App.apk
@@ -67,6 +78,8 @@ orbis avb-info --image vbmeta_a.img
 orbis avb-verify --image vbmeta_a.img
 orbis build --plan profiles\hy300\build-plan.example.json
 ```
+
+A superfície pública da CLI e sua política de compatibilidade estão documentadas em `docs/CLI_CONTRACT.md`.
 
 ## Build plan
 
