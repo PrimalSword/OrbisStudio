@@ -2,14 +2,25 @@ from __future__ import annotations
 
 import argparse
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from . import cli
 from .bootstrap import BootstrapError, doctor, import_native_tools, setup_tools, verify_lock
 
+PUBLIC_BOOTSTRAP_COMMANDS = ("setup", "doctor", "import-native", "verify-tools")
+
+
+def package_version() -> str:
+    try:
+        return version("orbisstudio")
+    except PackageNotFoundError:
+        return "0+unknown"
+
 
 def _bootstrap_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="orbis")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {package_version()}")
     commands = parser.add_subparsers(dest="command", required=True)
 
     setup = commands.add_parser("setup", help="Install the managed Android toolchain")
@@ -27,14 +38,20 @@ def _bootstrap_parser() -> argparse.ArgumentParser:
     native.add_argument("--from", dest="source", required=True)
     native.add_argument("--tools-dir")
 
-    lock = commands.add_parser("verify-tools", help="Verify managed tools against toolchain.lock.json")
+    lock = commands.add_parser(
+        "verify-tools",
+        help="Verify managed tools against toolchain.lock.json",
+    )
     lock.add_argument("--tools-dir")
     return parser
 
 
 def main() -> None:
-    bootstrap_commands = {"setup", "doctor", "import-native", "verify-tools"}
-    if len(sys.argv) < 2 or sys.argv[1] not in bootstrap_commands:
+    if len(sys.argv) >= 2 and sys.argv[1] == "--version":
+        print(f"orbis {package_version()}")
+        return
+
+    if len(sys.argv) < 2 or sys.argv[1] not in PUBLIC_BOOTSTRAP_COMMANDS:
         cli.main()
         return
 
