@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from . import cli
 from .bootstrap import BootstrapError, doctor, import_native_tools, setup_tools, verify_lock
+from .workspace import WorkspaceError, create_workspace, load_workspace, verify_workspace
 
 PUBLIC_BOOTSTRAP_COMMANDS = ("setup", "doctor", "import-native", "verify-tools")
+PUBLIC_WORKSPACE_COMMANDS = ("workspace-create", "workspace-info", "workspace-verify")
 
 
 def package_version() -> str:
@@ -46,9 +49,59 @@ def _bootstrap_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _workspace_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="orbis")
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    create = commands.add_parser(
+        "workspace-create",
+        help="Create a reproducible firmware workspace from .img and .bin artifacts",
+    )
+    create.add_argument("--source", required=True)
+    create.add_argument("--project", required=True)
+    create.add_argument("--name")
+    create.add_argument("--copy-to-work", action="store_true")
+
+    info = commands.add_parser("workspace-info", help="Read a firmware workspace manifest")
+    info.add_argument("--project", required=True)
+
+    verify = commands.add_parser(
+        "workspace-verify",
+        help="Verify immutable Stock artifacts against the workspace manifest",
+    )
+    verify.add_argument("--project", required=True)
+    return parser
+
+
+def _run_workspace() -> None:
+    args = _workspace_parser().parse_args()
+    try:
+        if args.command == "workspace-create":
+            manifest = create_workspace(
+                Path(args.source),
+                Path(args.project),
+                name=args.name,
+                copy_to_work=args.copy_to_work,
+            )
+            print(manifest.to_json())
+            return
+        if args.command == "workspace-info":
+            print(load_workspace(Path(args.project)).to_json())
+            return
+        report = verify_workspace(Path(args.project))
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if report["ready"] else 2)
+    except WorkspaceError as error:
+        raise SystemExit(f"Orbis workspace error: {error}") from error
+
+
 def main() -> None:
     if len(sys.argv) >= 2 and sys.argv[1] == "--version":
         print(f"orbis {package_version()}")
+        return
+
+    if len(sys.argv) >= 2 and sys.argv[1] in PUBLIC_WORKSPACE_COMMANDS:
+        _run_workspace()
         return
 
     if len(sys.argv) < 2 or sys.argv[1] not in PUBLIC_BOOTSTRAP_COMMANDS:
