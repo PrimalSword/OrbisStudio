@@ -37,10 +37,21 @@ def make_vbmeta(
     flags: int = 0,
     avbtool: Path | None = None,
 ) -> AvbChainResult:
-    output = output.expanduser().resolve(); output.parent.mkdir(parents=True, exist_ok=True)
+    output = output.expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
     tool = resolve_tool("avbtool", avbtool)
-    command = [str(tool), "make_vbmeta_image", "--output", str(output), "--algorithm", algorithm,
-               "--rollback_index", str(rollback_index), "--flags", str(flags)]
+    command = [
+        str(tool),
+        "make_vbmeta_image",
+        "--output",
+        str(output),
+        "--algorithm",
+        algorithm,
+        "--rollback_index",
+        str(rollback_index),
+        "--flags",
+        str(flags),
+    ]
     if key is not None:
         command += ["--key", str(key.expanduser().resolve())]
     elif algorithm != "NONE":
@@ -50,16 +61,41 @@ def make_vbmeta(
     for chain in chains:
         if not chain.public_key.is_file():
             raise AvbChainError(f"public key does not exist: {chain.public_key}")
-        command += ["--chain_partition", f"{chain.name}:{chain.rollback_index_location}:{chain.public_key.resolve()}"]
+        command += [
+            "--chain_partition",
+            f"{chain.name}:{chain.rollback_index_location}:{chain.public_key.resolve()}",
+        ]
     run_tool(command)
     if not output.is_file() or output.stat().st_size == 0:
         raise AvbChainError("avbtool did not produce vbmeta image")
     return AvbChainResult(str(output), tuple(command))
 
 
-def add_hash_footer(image: Path, partition_name: str, partition_size: int, key: Path,
-                    algorithm: str, rollback_index: int = 0, avbtool: Path | None = None) -> None:
+def add_hash_footer(
+    image: Path,
+    partition_name: str,
+    partition_size: int,
+    key: Path,
+    algorithm: str,
+    rollback_index: int = 0,
+    avbtool: Path | None = None,
+) -> None:
     tool = resolve_tool("avbtool", avbtool)
-    run_tool([str(tool), "add_hash_footer", "--image", str(image.resolve()), "--partition_name", partition_name,
-              "--partition_size", str(partition_size), "--key", str(key.resolve()), "--algorithm", algorithm,
-              "--rollback_index", str(rollback_index)])
+    run_tool(
+        [
+            str(tool),
+            "add_hash_footer",
+            "--image",
+            str(image.resolve()),
+            "--partition_name",
+            partition_name,
+            "--partition_size",
+            str(partition_size),
+            "--key",
+            str(key.resolve()),
+            "--algorithm",
+            algorithm,
+            "--rollback_index",
+            str(rollback_index),
+        ]
+    )
