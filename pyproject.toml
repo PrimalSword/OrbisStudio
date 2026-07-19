@@ -16,6 +16,7 @@ dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
 
 [project.scripts]
 orbis = "orbisstudio.cli:main"
+orbis-extract = "orbisstudio.extract_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
