@@ -9,6 +9,7 @@ from pathlib import Path
 from . import cli
 from .bootstrap import BootstrapError, doctor, import_native_tools, setup_tools, verify_lock
 from .logical_workspace import extract_logical_partitions
+from .lp_metadata import LpMetadataError, inspect_workspace_lp
 from .workspace import WorkspaceError, create_workspace, load_workspace, verify_workspace
 
 PUBLIC_BOOTSTRAP_COMMANDS = ("setup", "doctor", "import-native", "verify-tools")
@@ -16,6 +17,7 @@ PUBLIC_WORKSPACE_COMMANDS = (
     "workspace-create",
     "workspace-info",
     "workspace-verify",
+    "workspace-inspect-lp",
     "workspace-extract-logical",
 )
 
@@ -77,6 +79,14 @@ def _workspace_parser() -> argparse.ArgumentParser:
     )
     verify.add_argument("--project", required=True)
 
+    inspect_lp = commands.add_parser(
+        "workspace-inspect-lp",
+        help="Parse Android LP metadata from Stock/super.img and generate a profile",
+    )
+    inspect_lp.add_argument("--project", required=True)
+    inspect_lp.add_argument("--super-name", default="super.img")
+    inspect_lp.add_argument("--output")
+
     extract = commands.add_parser(
         "workspace-extract-logical",
         help="Extract linear LP partitions from Stock/super.img into Logical and Work",
@@ -104,6 +114,14 @@ def _run_workspace() -> None:
         if args.command == "workspace-info":
             print(load_workspace(Path(args.project)).to_json())
             return
+        if args.command == "workspace-inspect-lp":
+            lp_report = inspect_workspace_lp(
+                Path(args.project),
+                super_name=args.super_name,
+                output=Path(args.output) if args.output else None,
+            )
+            print(lp_report.to_json())
+            return
         if args.command == "workspace-extract-logical":
             extraction_report = extract_logical_partitions(
                 Path(args.project),
@@ -117,7 +135,7 @@ def _run_workspace() -> None:
         verification_report = verify_workspace(Path(args.project))
         print(json.dumps(verification_report, ensure_ascii=False, indent=2))
         raise SystemExit(0 if verification_report["ready"] else 2)
-    except (WorkspaceError, ValueError, json.JSONDecodeError) as error:
+    except (WorkspaceError, LpMetadataError, ValueError, json.JSONDecodeError) as error:
         raise SystemExit(f"Orbis workspace error: {error}") from error
 
 
