@@ -105,18 +105,18 @@ def _run_workspace() -> None:
             print(load_workspace(Path(args.project)).to_json())
             return
         if args.command == "workspace-extract-logical":
-            report = extract_logical_partitions(
+            extraction_report = extract_logical_partitions(
                 Path(args.project),
                 Path(args.profile),
                 super_name=args.super_name,
                 copy_to_work=not args.no_copy_to_work,
                 overwrite=args.overwrite,
             )
-            print(report.to_json())
+            print(extraction_report.to_json())
             return
-        report = verify_workspace(Path(args.project))
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-        raise SystemExit(0 if report["ready"] else 2)
+        verification_report = verify_workspace(Path(args.project))
+        print(json.dumps(verification_report, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if verification_report["ready"] else 2)
     except (WorkspaceError, ValueError, json.JSONDecodeError) as error:
         raise SystemExit(f"Orbis workspace error: {error}") from error
 
