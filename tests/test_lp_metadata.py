@@ -60,7 +60,7 @@ def _super_image(path: Path, corrupt_backup: bool = False) -> None:
     image[backup : backup + 128] = header
     image[backup + 128 : backup + 128 + len(tables)] = tables
     if corrupt_backup:
-        image[backup + 48] ^= 0xFF
+        image[backup + 128] ^= 0xFF
     path.write_bytes(image)
 
 
