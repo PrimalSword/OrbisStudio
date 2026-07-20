@@ -22,6 +22,7 @@ def test_public_workspace_commands_are_stable() -> None:
         "workspace-create",
         "workspace-info",
         "workspace-verify",
+        "workspace-inspect-lp",
         "workspace-extract-logical",
     )
 
@@ -46,6 +47,14 @@ def test_workspace_create_contract() -> None:
     assert args.source == "dump"
     assert args.project == "HY300"
     assert args.copy_to_work is False
+
+
+def test_workspace_inspect_lp_contract() -> None:
+    args = _workspace_parser().parse_args(["workspace-inspect-lp", "--project", "HY300"])
+    assert args.command == "workspace-inspect-lp"
+    assert args.project == "HY300"
+    assert args.super_name == "super.img"
+    assert args.output is None
 
 
 def test_workspace_extract_logical_contract() -> None:
