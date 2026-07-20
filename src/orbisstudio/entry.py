@@ -8,10 +8,16 @@ from pathlib import Path
 
 from . import cli
 from .bootstrap import BootstrapError, doctor, import_native_tools, setup_tools, verify_lock
+from .logical_workspace import extract_logical_partitions
 from .workspace import WorkspaceError, create_workspace, load_workspace, verify_workspace
 
 PUBLIC_BOOTSTRAP_COMMANDS = ("setup", "doctor", "import-native", "verify-tools")
-PUBLIC_WORKSPACE_COMMANDS = ("workspace-create", "workspace-info", "workspace-verify")
+PUBLIC_WORKSPACE_COMMANDS = (
+    "workspace-create",
+    "workspace-info",
+    "workspace-verify",
+    "workspace-extract-logical",
+)
 
 
 def package_version() -> str:
@@ -70,6 +76,16 @@ def _workspace_parser() -> argparse.ArgumentParser:
         help="Verify immutable Stock artifacts against the workspace manifest",
     )
     verify.add_argument("--project", required=True)
+
+    extract = commands.add_parser(
+        "workspace-extract-logical",
+        help="Extract linear LP partitions from Stock/super.img into Logical and Work",
+    )
+    extract.add_argument("--project", required=True)
+    extract.add_argument("--profile", required=True)
+    extract.add_argument("--super-name", default="super.img")
+    extract.add_argument("--no-copy-to-work", action="store_true")
+    extract.add_argument("--overwrite", action="store_true")
     return parser
 
 
@@ -88,10 +104,20 @@ def _run_workspace() -> None:
         if args.command == "workspace-info":
             print(load_workspace(Path(args.project)).to_json())
             return
+        if args.command == "workspace-extract-logical":
+            report = extract_logical_partitions(
+                Path(args.project),
+                Path(args.profile),
+                super_name=args.super_name,
+                copy_to_work=not args.no_copy_to_work,
+                overwrite=args.overwrite,
+            )
+            print(report.to_json())
+            return
         report = verify_workspace(Path(args.project))
         print(json.dumps(report, ensure_ascii=False, indent=2))
         raise SystemExit(0 if report["ready"] else 2)
-    except WorkspaceError as error:
+    except (WorkspaceError, ValueError, json.JSONDecodeError) as error:
         raise SystemExit(f"Orbis workspace error: {error}") from error
 
 
